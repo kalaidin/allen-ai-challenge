@@ -3,6 +3,8 @@
 
 from __future__ import  print_function, division
 
+from time import time
+
 import numpy as np
 import theano
 import theano.tensor as T
@@ -20,8 +22,8 @@ ANSWER_MAX_LEN = 20
 BATCH_SIZE = 15
 
 
-OUTPUT_DIM = 20
-N_HIDDEN = 100
+OUTPUT_DIM = 300
+N_HIDDEN = 300
 LEARNING_RATE = .001
 GRAD_CLIP = 100
 EPOCH_SIZE = 100
@@ -133,7 +135,8 @@ q_forward = lasagne.layers.RecurrentLayer(
     nonlinearity=lasagne.nonlinearities.rectify, only_return_final=True)
 q_out = lasagne.layers.DenseLayer(q_forward, num_units=OUTPUT_DIM, nonlinearity=lasagne.nonlinearities.rectify)
 target_values = T.vector('target_output')
-question_point = lasagne.layers.get_output(q_out)
+question_vec = lasagne.layers.get_output(q_out)
+question_nvec = question_vec / question_vec.norm(2, axis=1).dimshuffle(0, 'x')
 q_params = lasagne.layers.get_all_params(q_out)
 
 
@@ -150,15 +153,17 @@ sa_out = lasagne.layers.DenseLayer(sa_forward, num_units=OUTPUT_DIM, nonlinearit
 answer_point = lasagne.layers.get_output(sa_out)
 sa_params = lasagne.layers.get_all_params(q_out)
 
-correct_point = answer_point[0:BATCH_SIZE]
-wrong_point = answer_point[BATCH_SIZE:]
+correct_vec = answer_point[0:BATCH_SIZE]
+correct_nvec = correct_vec / correct_vec.norm(2, axis=1).dimshuffle((0, 'x'))
+wrong_vec = answer_point[BATCH_SIZE:]
+wrong_nvec = wrong_vec / wrong_vec.norm(2, axis=1).dimshuffle((0, 'x'))
 
 print('Computing cost ...')
 
-correct_dist = 1 - T.dot(question_point.T, correct_point) / (question_point.norm(2) * correct_point.norm(2))
-wrong_dist = 1 - T.dot(question_point.T, wrong_point) / (question_point.norm(2) * wrong_point.norm(2))
+correct_dist = 1 - T.sum(question_nvec * correct_nvec, axis=1)
+wrong_dist = 1 - T.sum(question_nvec * wrong_nvec, axis=1)
 
-cost = T.maximum(0, correct_dist - wrong_dist + 1).mean()
+cost = T.maximum(0, correct_dist - wrong_dist + MARGIN).mean()
 
 print('Computing updates ...')
 updates = lasagne.updates.adam(cost, q_params)
@@ -167,13 +172,23 @@ updates.update(lasagne.updates.adam(cost, sa_params))
 print('Compiling functions ...')
 train_fn = theano.function([q_in.input_var, sa_in.input_var], cost, updates=updates)
 cost_fn = theano.function([q_in.input_var, sa_in.input_var], cost)
+dist_fn = theano.function([q_in.input_var, sa_in.input_var], [correct_dist, wrong_dist])
+# correct_point_fn = theano.function([sa_in.input_var], correct_vec)
+# answer_point_fn = theano.function([sa_in.input_var], answer_point)
 
 print('Model compiled!')
 
+# d = dist_fn(train_q[keys], np.vstack((train_c[keys], train_w[keys])))
+# d[1].shape
+
+# arg = np.vstack((train_c[keys], train_w[keys]))
+# correct_point_fn(np.vstack((train_c[keys], train_w[keys]))).shape
+# answer_point_fn(np.vstack((train_c[keys], train_w[keys]))).shape
 
 indexi_train = np.arange(train_q.shape[0])
 indexi_valid = np.arange(valid_q.shape[0])
 for e in xrange(100):
+    epoch_start = time()
     np.random.shuffle(indexi_train)
     train_costs = []
     for i in xrange(0, indexi_train.shape[0], BATCH_SIZE):
@@ -191,4 +206,5 @@ for e in xrange(100):
         cost = cost_fn(valid_q[keys], np.vstack((valid_c[keys], valid_w[keys])))
         valid_costs.append(cost)
 
-    print(e, np.mean(train_costs), np.mean(valid_costs))
+    time_passed = time() - epoch_start
+    print(e, np.mean(train_costs), np.mean(valid_costs), '%f.0sec' % time_passed)
