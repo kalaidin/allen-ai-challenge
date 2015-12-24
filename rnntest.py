@@ -46,7 +46,7 @@ def text2words(t):
     r = s.lower().split()
     return r
 
-
+# TODO: generate mask vector
 def text2vec(text, seq_length):
     vecs = []
     for w in text2words(text):
@@ -56,8 +56,10 @@ def text2vec(text, seq_length):
             continue
     rec = np.concatenate(vecs, axis=0).astype('float32')
     if rec.shape[0] > seq_length:
+        # trim long sentences
         rec = rec[rec.shape[0] - seq_length:, :]
-    else:
+    elif rec.shape[0] < seq_length:
+        # extend short sentences with zeros
         rec = np.vstack([np.zeros((seq_length - rec.shape[0], rec.shape[1])), rec])
     assert rec.shape[0] == seq_length
     return rec
