@@ -23,14 +23,15 @@ QUESTION_LEN = 50
 ANSWER_MAX_LEN = 20
 BATCH_SIZE = 15
 
+OUTPUT_DIM = 100
+N_HIDDEN = 100
+GRAD_CLIP = 10
+NUM_EPOCHS = 100
+MARGIN = 0.1
 
-OUTPUT_DIM = 300
-N_HIDDEN = 300
-LEARNING_RATE = .001
-GRAD_CLIP = 100
-EPOCH_SIZE = 100
-NUM_EPOCHS = 10
-MARGIN = 0
+# TODO: add L2
+# TODO: add dropout
+# TODO: add mask
 
 
 def read_dict():
@@ -51,7 +52,7 @@ def text2words(t):
     r = s.lower().split()
     return r
 
-# TODO: generate mask vector
+
 def text2vec(text, seq_length):
     vecs = []
     for w in text2words(text):
@@ -60,7 +61,7 @@ def text2vec(text, seq_length):
         except KeyError:
             continue
     if not vecs:
-        vecs.append(np.random.normal(scale=1e-4, size=(1, 300)).astype(dtype='float32'))
+        vecs.append(np.random.normal(scale=1e-4, size=(1, W2V_DIM)).astype(dtype='float32'))
     rec = np.concatenate(vecs, axis=0).astype('float32')
     if rec.shape[0] > seq_length:
         # trim long sentences
@@ -192,7 +193,7 @@ print('Model compiled!')
 print('Training ...')
 indexi_train = np.arange(train_q.shape[0])
 indexi_valid = np.arange(valid_q.shape[0])
-for e in xrange(100):
+for e in xrange(NUM_EPOCHS):
     epoch_start = time()
     np.random.shuffle(indexi_train)
     train_costs = []
