@@ -13,8 +13,10 @@ import re
 from sklearn.cross_validation import KFold
 
 TRAIN_FILE = '/home/marat/Downloads/training_set.tsv'
-VALID_FILE = '/home/marat/Downloads/validation_set.tsv'
+TEST_FILE = '/home/marat/Downloads/validation_set.tsv'
 W2V_DICT_FILE = '/home/marat/Downloads/w2v_a2.tsv'
+
+SUBMISSION_FILE = '/home/marat/allen-ai-submission.csv'
 
 W2V_DIM = 300
 QUESTION_LEN = 50
@@ -57,6 +59,8 @@ def text2vec(text, seq_length):
             vecs.append(W2V[w][np.newaxis, :])
         except KeyError:
             continue
+    if not vecs:
+        vecs.append(np.random.normal(scale=1e-4, size=(1, 300)).astype(dtype='float32'))
     rec = np.concatenate(vecs, axis=0).astype('float32')
     if rec.shape[0] > seq_length:
         # trim long sentences
@@ -72,24 +76,10 @@ def read_data(file_name):
     data = []
     with open(file_name) as f:
         header = f.readline().strip().split('\t')
-        print(header)
+        print('Train file header:', ', '.join(header))
         for row in (line.strip().split('\t') for line in f):
             i, q, answer, aA, aB, aC, aD = row
-            # if len(text2words(q))>140:
-            #     print(q)
-            # for a in [aA, aB, aC, aD]:
-            #     if len(text2words(a)) > 20:
-            #         print(a)
-            try:
-                text2vec(aA, ANSWER_MAX_LEN)
-                text2vec(aB, ANSWER_MAX_LEN)
-                text2vec(aC, ANSWER_MAX_LEN)
-                text2vec(aD, ANSWER_MAX_LEN)
-            except Exception as ex:
-                print(ex)
-                # print(row)
-                continue
-            data.append((i,
+            data.append((int(i),
                          text2vec(q, QUESTION_LEN),
                          answer,
                          text2vec(aA, ANSWER_MAX_LEN),
@@ -98,8 +88,19 @@ def read_data(file_name):
                          text2vec(aD, ANSWER_MAX_LEN)))
     return data
 
-all_data = read_data(TRAIN_FILE)
-train_idx, valid_idx = KFold(len(all_data)).__iter__().next()
+
+def read_submission_sample(file_name):
+    with open(file_name) as f:
+        header = f.readline().strip().split('\t')
+        print('Submission header:', ', '.join(header))
+        for row in (line.strip().split('\t') for line in f):
+            i, q, aA, aB, aC, aD = row
+            yield (int(i),
+                   text2vec(q, QUESTION_LEN),
+                   text2vec(aA, ANSWER_MAX_LEN),
+                   text2vec(aB, ANSWER_MAX_LEN),
+                   text2vec(aC, ANSWER_MAX_LEN),
+                   text2vec(aD, ANSWER_MAX_LEN))
 
 
 def generate_batches(data):
@@ -110,6 +111,19 @@ def generate_batches(data):
         del wrong_answers[correct_index]
         for wa in wrong_answers:
             yield i, q, correct_answer, wa
+
+
+def zip_arrays(arr1, arr2):
+    assert arr1.shape == arr2.shape
+    n = arr1.shape[0]
+    z = np.zeros((n*2,) + arr1.shape[1:], dtype=arr1.dtype)
+    for i in xrange(arr1.shape[0]):
+        z[i*2] = arr1[i]
+        z[i*2 + 1] = arr2[i]
+    return z
+
+all_data = read_data(TRAIN_FILE)
+train_idx, valid_idx = KFold(len(all_data)).__iter__().next()
 
 train_i, train_q, train_c, train_w = list(zip(*list(generate_batches([all_data[i] for i in train_idx]))))
 train_i = np.array(train_i, dtype='int')
@@ -125,7 +139,7 @@ valid_w = np.array(valid_w, dtype='float32')
 
 
 print('Building question network ...')
-q_in = lasagne.layers.InputLayer(shape=(BATCH_SIZE, QUESTION_LEN, W2V_DIM))
+q_in = lasagne.layers.InputLayer(shape=(None, QUESTION_LEN, W2V_DIM))
 q_forward = lasagne.layers.RecurrentLayer(
     q_in, N_HIDDEN,
     # mask_input=l_mask,
@@ -141,7 +155,7 @@ q_params = lasagne.layers.get_all_params(q_out)
 
 
 print('Building siamese answer network ...')
-sa_in = lasagne.layers.InputLayer(shape=(BATCH_SIZE, QUESTION_LEN, W2V_DIM))
+sa_in = lasagne.layers.InputLayer(shape=(None, QUESTION_LEN, W2V_DIM))
 sa_forward = lasagne.layers.RecurrentLayer(
     sa_in, N_HIDDEN,
     # mask_input=l_mask,
@@ -153,9 +167,9 @@ sa_out = lasagne.layers.DenseLayer(sa_forward, num_units=OUTPUT_DIM, nonlinearit
 answer_point = lasagne.layers.get_output(sa_out)
 sa_params = lasagne.layers.get_all_params(q_out)
 
-correct_vec = answer_point[0:BATCH_SIZE]
+correct_vec = answer_point[0::2]
 correct_nvec = correct_vec / correct_vec.norm(2, axis=1).dimshuffle((0, 'x'))
-wrong_vec = answer_point[BATCH_SIZE:]
+wrong_vec = answer_point[1::2]
 wrong_nvec = wrong_vec / wrong_vec.norm(2, axis=1).dimshuffle((0, 'x'))
 
 print('Computing cost ...')
@@ -173,18 +187,9 @@ print('Compiling functions ...')
 train_fn = theano.function([q_in.input_var, sa_in.input_var], cost, updates=updates)
 cost_fn = theano.function([q_in.input_var, sa_in.input_var], cost)
 dist_fn = theano.function([q_in.input_var, sa_in.input_var], [correct_dist, wrong_dist])
-# correct_point_fn = theano.function([sa_in.input_var], correct_vec)
-# answer_point_fn = theano.function([sa_in.input_var], answer_point)
-
 print('Model compiled!')
 
-# d = dist_fn(train_q[keys], np.vstack((train_c[keys], train_w[keys])))
-# d[1].shape
-
-# arg = np.vstack((train_c[keys], train_w[keys]))
-# correct_point_fn(np.vstack((train_c[keys], train_w[keys]))).shape
-# answer_point_fn(np.vstack((train_c[keys], train_w[keys]))).shape
-
+print('Training ...')
 indexi_train = np.arange(train_q.shape[0])
 indexi_valid = np.arange(valid_q.shape[0])
 for e in xrange(100):
@@ -193,18 +198,29 @@ for e in xrange(100):
     train_costs = []
     for i in xrange(0, indexi_train.shape[0], BATCH_SIZE):
         keys = indexi_train[i:i + BATCH_SIZE]
-        if keys.shape[0] != BATCH_SIZE:
-            continue
-        cost = train_fn(train_q[keys], np.vstack((train_c[keys], train_w[keys])))
+        cost = train_fn(train_q[keys], zip_arrays(train_c[keys], train_w[keys]))
         train_costs.append(cost)
 
     valid_costs = []
     for i in xrange(0, indexi_valid.shape[0], BATCH_SIZE):
         keys = indexi_valid[i:i + BATCH_SIZE]
-        if keys.shape[0] != BATCH_SIZE:
-            continue
-        cost = cost_fn(valid_q[keys], np.vstack((valid_c[keys], valid_w[keys])))
+        cost = cost_fn(valid_q[keys], zip_arrays(valid_c[keys], valid_w[keys]))
         valid_costs.append(cost)
 
     time_passed = time() - epoch_start
-    print(e, np.mean(train_costs), np.mean(valid_costs), '%f.0sec' % time_passed)
+    print(e, np.mean(train_costs), np.mean(valid_costs), '%.0fsec' % time_passed)
+
+
+with open(SUBMISSION_FILE, 'w') as f:
+    f.write('id,correctAnswer\n')
+    for i, q, A, B, C, D in read_submission_sample(TEST_FILE):
+        q = np.repeat(q[np.newaxis], 2, axis=0)
+        a = np.vstack([A[np.newaxis], B[np.newaxis], C[np.newaxis], D[np.newaxis]])
+        d = dist_fn(q, a)
+        d_A, d_B = d[0]
+        d_C, d_D = d[1]
+        answer_index = np.argmin([d_A, d_B, d_C, d_D])
+        answer = 'ABCD'[answer_index]
+        text = '%s,%s\n' % (i, answer)
+        f.write(text)
+        print(text[:-1], [d_A, d_B, d_C, d_D])
