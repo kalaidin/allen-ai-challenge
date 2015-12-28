@@ -43,7 +43,10 @@ def text2vec(text, seq_length):
         except KeyError:
             continue
     if not vecs:
-        vecs.append(np.random.normal(scale=1e-4, size=(1, W2V_DIM)).astype(dtype='float32'))
+        r = np.random.uniform(-1e2, 1e2, size=(1, W2V_DIM))
+        r = r / np.linalg.norm(r)
+        vecs.append(r.astype(dtype='float32'))
+        # vecs.append(np.zeros((1, W2V_DIM), dtype='float32'))
     rec = np.concatenate(vecs, axis=0).astype('float32')
     if rec.shape[0] > seq_length:
         # trim long sentences
