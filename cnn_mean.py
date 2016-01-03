@@ -27,7 +27,7 @@ OUTPUT_NONLINEARITY = lasagne.nonlinearities.sigmoid
 
 L2 = 1e-4
 NUM_EPOCHS = 100
-MARGIN = 1
+MARGIN = 0.1
 
 # TODO: add dropout
 # TODO: add mask
@@ -53,11 +53,12 @@ valid_w = np.array(valid_w, dtype='float32')
 
 print('Building question network ...')
 q_in = lasagne.layers.InputLayer(shape=(None, QUESTION_LEN, W2V_DIM))
-q_n = lasagne.layers.DimshuffleLayer(q_in, (0, 2, 1))
-q_n = lasagne.layers.Conv1DLayer(q_n, N_HIDDEN, filter_size=1, pad=0)
-# q_n = lasagne.layers.dropout(q_n)
-q_n = lasagne.layers.Conv1DLayer(q_n, 1, filter_size=7, pad=3, nonlinearity=OUTPUT_NONLINEARITY)
-q_out = lasagne.layers.reshape(q_n, shape=([0], -1, 1))
+q_n = lasagne.layers.DimshuffleLayer(q_in, (0, 2, 1))  # (:, 300, 50)
+q_n = lasagne.layers.Conv1DLayer(q_n, N_HIDDEN, filter_size=1, pad=0)   # (:, 20, 50)
+q_n = lasagne.layers.dropout(q_n)
+q_n = lasagne.layers.Conv1DLayer(q_n, 1, filter_size=7, pad=3, nonlinearity=OUTPUT_NONLINEARITY)   # (:, 1, 50)
+q_n = lasagne.layers.ExpressionLayer(q_n, lambda x: T.addbroadcast(x, 1))
+q_out = lasagne.layers.DimshuffleLayer(q_n, (0, 2, 'x'))
 question_vec = T.sum(lasagne.layers.get_output(q_out) * q_in.input_var, axis=1)
 # question_vec = question_vec / (question_vec.norm(2, axis=1).dimshuffle((0, 'x')) + EPS)
 # question_vec.eval({q_in.input_var: train_q[:13]}).shape
@@ -69,9 +70,10 @@ print('Building siamese answer network ...')
 a_in = lasagne.layers.InputLayer(shape=(None, ANSWER_MAX_LEN, W2V_DIM))
 a_n = lasagne.layers.DimshuffleLayer(a_in, (0, 2, 1))
 a_n = lasagne.layers.Conv1DLayer(a_n, N_HIDDEN, filter_size=1, pad=0)
-# a_n = lasagne.layers.dropout(a_n)
+a_n = lasagne.layers.dropout(a_n)
 a_n = lasagne.layers.Conv1DLayer(a_n, 1, filter_size=7, pad=3, nonlinearity=OUTPUT_NONLINEARITY)
-a_out = lasagne.layers.reshape(a_n, shape=([0], -1, 1))
+a_n = lasagne.layers.ExpressionLayer(a_n, lambda x: T.addbroadcast(x, 1))
+a_out = lasagne.layers.DimshuffleLayer(a_n, (0, 2, 'x'))
 answer_vec = T.sum(lasagne.layers.get_output(a_out) * a_in.input_var, axis=1)
 # answer_vec = answer_vec / (answer_vec.norm(2, axis=1).dimshuffle((0, 'x')) + EPS)
 a_params = lasagne.layers.get_all_params(a_out)
@@ -94,7 +96,8 @@ cost = T.maximum(0, (MARGIN + correct_cos_sim - wrong_cos_sim)).mean() + cost_l2
 
 print('Computing updates ...')
 updates = lasagne.updates.adam(cost, q_params)
-updates.update(lasagne.updates.adam(cost, a_params))
+for p, v in lasagne.updates.adam(cost, a_params).iteritems():
+    updates[p] = updates.get(p, 0) + v
 
 print('Compiling functions ...')
 train_fn = theano.function([q_in.input_var, a_in.input_var], cost, updates=updates)
@@ -140,6 +143,7 @@ for e in xrange(NUM_EPOCHS):
 
 
 # Forming submission file SUBMISSION_FILE
+print('epoch', 'valid', 'train')
 with open(SUBMISSION_FILE, 'w') as f:
     f.write('id,correctAnswer\n')
     for i, q, A, B, C, D in read_submission_sample(TEST_FILE):
