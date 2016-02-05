@@ -114,14 +114,14 @@ class MySpider(scrapy.Spider):
             concept_urls = ["%s/%s/lesson/%s" % (response.url, concept, concept),
                             "%s/%s/lesson/%s" % (response.url, concept, concept.split("-in-")[0]),
                             "%s/%s/lesson/%s" % (response.url, concept, concept.split("-in-")[0] + "-Basic")]
-        concept = Concept()
-        concept["concept"] = [concepts]
-        return concept
-            # for url in concept_urls:
-            #     request = scrapy.Request(url, self.parse_page)
-            #     request.meta["science"] = science
-            #     request.meta["concept"] = concept
-            #     yield request
+        # concept = Concept()
+        # concept["concept"] = [concepts]
+        # return concept
+            for url in concept_urls:
+                request = scrapy.Request(url, self.parse_page)
+                request.meta["science"] = science
+                request.meta["concept"] = concept
+                yield request
 
 
     def parse_page(self, response):

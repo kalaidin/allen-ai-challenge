@@ -25,7 +25,7 @@ public class Main {
             }
             return result;
         } catch (IOException e) {
-            System.out.println("We fucked up");
+            System.out.println("Holy guacamole!");
             return new ArrayList<>();
         }
     }
@@ -35,7 +35,7 @@ public class Main {
             Document doc = Jsoup.connect(url).timeout(10000).get();
             return doc.select("table.tabbed").select("tr").get(1).select("td").get(0).text();
         } catch (IOException e) {
-            System.out.println("We fucked up");
+            System.out.println("Holy guacamole!");
             return "";
         }
     }
