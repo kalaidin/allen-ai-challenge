@@ -1,13 +1,6 @@
 import telepot
 from bs4 import BeautifulSoup
 
-def telegram_notify(msg):
-    token = "178350795:AAFG7yae2SSt52GLek2bKS43oK7BaywWxRw"
-    bot = telepot.Bot(token)
-    b = bot.getMe()
-    response = bot.getUpdates()
-    bot.sendMessage(31747780, msg)
-
 import scrapy
 from scrapy.crawler import CrawlerProcess
 import json
@@ -152,5 +145,3 @@ crawler = CrawlerProcess(settings)
 
 crawler.crawl(MySpider)
 crawler.start()
-
-telegram_notify("done")
